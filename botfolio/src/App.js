@@ -6,13 +6,11 @@ import "bootstrap/dist/css/bootstrap.min.css";
 
 function App() {
   const [user, setUser] = useState(null);
-  const [resume, setResume] = useState(null);
-  const [coverLetter, setCoverLetter] = useState(null);
-  const [resumeName, setResumeName] = useState("");
-  const [coverLetterName, setCoverLetterName] = useState("");
+  const [resumes, setResumes] = useState([]);
+  const [coverLetters, setCoverLetters] = useState([]);
   const [uploading, setUploading] = useState(false);
-  const [resumeProgress, setResumeProgress] = useState(0);
-  const [coverLetterProgress, setCoverLetterProgress] = useState(0);
+  const [resumeProgress, setResumeProgress] = useState([]);
+  const [coverLetterProgress, setCoverLetterProgress] = useState([]);
 
   const handleLogin = async () => {
     try {
@@ -27,29 +25,31 @@ function App() {
   const handleLogout = () => {
     signOut(auth);
     setUser(null);
-    setResume(null);
-    setCoverLetter(null);
-    setResumeName("");
-    setCoverLetterName("");
-    setResumeProgress(0);
-    setCoverLetterProgress(0);
+    setResumes([]);
+    setCoverLetters([]);
+    setResumeProgress([]);
+    setCoverLetterProgress([]);
     console.log("✅ User logged out.");
   };
 
   const handleFileChange = (event, type) => {
-    const file = event.target.files[0];
-    if (file) {
+    const files = Array.from(event.target.files).slice(0, 3); // Allow up to 3 files per selection
+    if (files.length > 0) {
       if (type === "resume") {
-        setResume(file);
-        setResumeName(file.name);
+        // Append new files to the existing resumes, ensuring the total does not exceed 3
+        const updatedResumes = [...resumes, ...files].slice(0, 3);
+        setResumes(updatedResumes);
+        setResumeProgress(new Array(updatedResumes.length).fill(0));
       } else {
-        setCoverLetter(file);
-        setCoverLetterName(file.name);
+        // Append new files to the existing cover letters, ensuring the total does not exceed 3
+        const updatedCoverLetters = [...coverLetters, ...files].slice(0, 3);
+        setCoverLetters(updatedCoverLetters);
+        setCoverLetterProgress(new Array(updatedCoverLetters.length).fill(0));
       }
     }
   };
 
-  const uploadFile = (file, path, setProgress) => {
+  const uploadFile = (file, path, setProgress, index) => {
     return new Promise((resolve, reject) => {
       if (!file) {
         console.error("❌ No file selected.");
@@ -65,7 +65,11 @@ function App() {
         "state_changed",
         (snapshot) => {
           const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setProgress(progress.toFixed(2));
+          setProgress((prev) => {
+            const newProgress = [...prev];
+            newProgress[index] = progress.toFixed(2);
+            return newProgress;
+          });
           console.log(`✅ Upload Progress: ${progress}%`);
         },
         (error) => {
@@ -92,32 +96,44 @@ function App() {
       alert("❌ Please sign in before uploading.");
       return;
     }
-
-    if (!resume || !coverLetter) {
-      alert("❌ Please select both a Resume and a Cover Letter.");
+  
+    if (resumes.length === 0 || coverLetters.length === 0) {
+      alert("❌ Please select at least one Resume and one Cover Letter.");
       return;
     }
-
+  
     setUploading(true);
-    setResumeProgress(0);
-    setCoverLetterProgress(0);
-
+    setResumeProgress(new Array(resumes.length).fill(0));
+    setCoverLetterProgress(new Array(coverLetters.length).fill(0));
+  
     try {
       console.log("📤 Uploading files...");
-
-      const resumePath = `resumes/${user.uid}-${resume.name}`;
-      const coverLetterPath = `cover_letters/${user.uid}-${coverLetter.name}`;
-
-      const [resumeURL, coverLetterURL] = await Promise.all([
-        uploadFile(resume, resumePath, setResumeProgress),
-        uploadFile(coverLetter, coverLetterPath, setCoverLetterProgress),
-      ]);
-
-      console.log("✅ Resume URL:", resumeURL);
-      console.log("✅ Cover Letter URL:", coverLetterURL);
-
+  
+      // Define file paths for resumes and cover letters
+      const resumePaths = resumes.map(
+        (resume) => `resumes/${user.uid}/${resume.name}`
+      );
+      const coverLetterPaths = coverLetters.map(
+        (coverLetter) => `cover_letters/${user.uid}/${coverLetter.name}`
+      );
+  
+      // Upload all resumes and cover letters in parallel
+      const resumeURLs = await Promise.all(
+        resumes.map((resume, index) =>
+          uploadFile(resume, resumePaths[index], setResumeProgress, index)
+        )
+      ); // ✅ Closing parenthesis added
+  
+      const coverLetterURLs = await Promise.all(
+        coverLetters.map((coverLetter, index) =>
+          uploadFile(coverLetter, coverLetterPaths[index], setCoverLetterProgress, index)
+        )
+      ); // ✅ Closing parenthesis added
+  
+      console.log("✅ Resume URLs:", resumeURLs);
+      console.log("✅ Cover Letter URLs:", coverLetterURLs);
+  
       alert("🎉 Files uploaded successfully!");
-
     } catch (error) {
       console.error("❌ Upload failed:", error);
       alert("File upload failed. Please check Firebase Storage settings.");
@@ -125,6 +141,7 @@ function App() {
       setUploading(false);
     }
   };
+  
 
   return (
     <div className="container text-center mt-5">
@@ -163,50 +180,78 @@ function App() {
               <h4 className="mb-3">Upload Your Resume & Cover Letter</h4>
 
               {/* Resume Upload */}
-              <label className="form-label mt-2">Resume (PDF/DOC/DOCX)</label>
+              <label className="form-label mt-2">Resumes (PDF/DOC/DOCX) - Max 3</label>
               <input
                 type="file"
                 accept=".pdf,.doc,.docx"
                 className="form-control"
                 onChange={(e) => handleFileChange(e, "resume")}
+                multiple
               />
-              {resumeName && <p className="text-success mt-1">📄 {resumeName}</p>}
-
-              {/* Upload Progress for Resume */}
-              {resumeProgress > 0 && (
-                <div className="progress mt-2">
-                  <div
-                    className="progress-bar progress-bar-striped progress-bar-animated bg-info"
-                    role="progressbar"
-                    style={{ width: `${resumeProgress}%` }}
-                  >
-                    {resumeProgress}%
-                  </div>
+              {resumes.length > 0 && (
+                <div className="mt-2">
+                  <h6>Selected Resumes:</h6>
+                  <ul className="list-group">
+                    {resumes.map((resume, index) => (
+                      <li key={index} className="list-group-item">
+                        📄 {resume.name}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
 
+              {/* Upload Progress for Resumes */}
+              {resumeProgress.map((progress, index) => (
+                progress > 0 && (
+                  <div key={index} className="progress mt-2">
+                    <div
+                      className="progress-bar progress-bar-striped progress-bar-animated bg-info"
+                      role="progressbar"
+                      style={{ width: `${progress}%` }}
+                    >
+                      {progress}%
+                    </div>
+                  </div>
+                )
+              ))}
+
               {/* Cover Letter Upload */}
-              <label className="form-label mt-3">Cover Letter (PDF/DOC/DOCX)</label>
+              <label className="form-label mt-3">Cover Letters (PDF/DOC/DOCX) - Max 3</label>
               <input
                 type="file"
                 accept=".pdf,.doc,.docx"
                 className="form-control"
                 onChange={(e) => handleFileChange(e, "coverLetter")}
+                multiple
               />
-              {coverLetterName && <p className="text-success mt-1">📄 {coverLetterName}</p>}
-
-              {/* Upload Progress for Cover Letter */}
-              {coverLetterProgress > 0 && (
-                <div className="progress mt-2">
-                  <div
-                    className="progress-bar progress-bar-striped progress-bar-animated bg-success"
-                    role="progressbar"
-                    style={{ width: `${coverLetterProgress}%` }}
-                  >
-                    {coverLetterProgress}%
-                  </div>
+              {coverLetters.length > 0 && (
+                <div className="mt-2">
+                  <h6>Selected Cover Letters:</h6>
+                  <ul className="list-group">
+                    {coverLetters.map((coverLetter, index) => (
+                      <li key={index} className="list-group-item">
+                        📄 {coverLetter.name}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
+
+              {/* Upload Progress for Cover Letters */}
+              {coverLetterProgress.map((progress, index) => (
+                progress > 0 && (
+                  <div key={index} className="progress mt-2">
+                    <div
+                      className="progress-bar progress-bar-striped progress-bar-animated bg-success"
+                      role="progressbar"
+                      style={{ width: `${progress}%` }}
+                    >
+                      {progress}%
+                    </div>
+                  </div>
+                )
+              ))}
 
               <button className="btn btn-success mt-3 shadow-sm" onClick={handleUpload} disabled={uploading}>
                 {uploading ? "🚀 Uploading..." : "📤 Upload Files"}
